@@ -1,0 +1,60 @@
+name: Build NerdyReader APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find the project (unzip if needed)
+        run: |
+          if [ -f settings.gradle ]; then
+            ROOT=.
+          else
+            mkdir -p _unz
+            for z in *.zip; do [ -f "$z" ] && unzip -q -o "$z" -d _unz; done
+            ROOT=$(dirname "$(find _unz -name settings.gradle | head -1)")
+          fi
+          echo "Project root: $ROOT"
+          echo "ROOT=$ROOT" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+
+      - name: Build APK
+        run: cd "$ROOT" && gradle assembleDebug --no-daemon
+
+      - name: Collect APK
+        run: |
+          mkdir -p out
+          cp "$ROOT/app/build/outputs/apk/debug/app-debug.apk" out/NerdyReader.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NerdyReader-apk
+          path: out/NerdyReader.apk
+
+      - name: Publish to Releases (easy download link)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: NerdyReader (latest build)
+          body: Download NerdyReader.apk below and install it. Each push rebuilds this file.
+          files: out/NerdyReader.apk
+          make_latest: true
