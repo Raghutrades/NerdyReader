@@ -1,0 +1,72 @@
+name: Build NerdyReader APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find the project (unzip if needed) and add your photo and books
+        run: |
+          if [ -f settings.gradle ]; then
+            ROOT=.
+          else
+            mkdir -p _unz
+            Z=NerdyReader-source.zip
+            [ -f "$Z" ] || Z=$(ls *.zip | head -1)
+            echo "Using $Z"
+            unzip -q -o "$Z" -d _unz
+            ROOT=$(dirname "$(find _unz -name settings.gradle | head -1)")
+          fi
+          echo "Project root: $ROOT"
+          echo "ROOT=$ROOT" >> "$GITHUB_ENV"
+          # Your own photo (raghu.jpg / .png / .webp) and book files, if you uploaded them next to the zip
+          WWW="$ROOT/app/src/main/assets/www"
+          for f in raghu.jpg raghu.jpeg raghu.png raghu.webp; do [ -f "$f" ] && cp "$f" "$WWW/" && echo "Added photo $f" || true; done
+          mkdir -p "$WWW/books"
+          for f in *.pdf *.epub; do [ -f "$f" ] && cp "$f" "$WWW/books/" && echo "Added book $f" || true; done
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Accept Android licenses (SDK is preinstalled on the runner)
+        run: |
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          echo "sdk.dir=$SDK" > "$ROOT/local.properties"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+
+      - name: Build APK
+        run: cd "$ROOT" && gradle assembleDebug --no-daemon
+
+      - name: Collect APK
+        run: |
+          mkdir -p out
+          cp "$ROOT/app/build/outputs/apk/debug/app-debug.apk" out/NerdyReader.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NerdyReader-apk
+          path: out/NerdyReader.apk
+
+      - name: Publish to Releases (easy download link)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: NerdyReader (latest build)
+          body: Download NerdyReader.apk below and install it. Each push rebuilds this file.
+          files: out/NerdyReader.apk
+          make_latest: true
